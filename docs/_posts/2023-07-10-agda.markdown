@@ -1,0 +1,106 @@
+---
+layout: post
+title:  "Dependent typing and Agda"
+date:   2023-07-10 20:18:00 +0100
+categories: blog
+---
+Recently, I've been going back through this years Advent of Code in Typescript (with a functional style). At one point, I found myself making a type alias for a 3D coordinate, as
+
+```typescript
+type coord = [number, number, number]
+
+let a: coord = [1,2,3]
+```
+
+and then trying to map over a coordinate to form a new coordinate,
+
+```typescript
+let b: coord = a.map(myCustomCallbackFn)
+```
+
+But this throws an error
+
+```
+Type 'number[]' is not assignable to type 'coord'. Target requires 3 element(s) but source may have fewer.
+```
+
+How can this be possible? I _know_ `b` will have 3 elements in; `a` is a coordinate, and `map` preserves the length of the list, so it follows `b` will have the same length as `a`. Similar problems arise when using other length-preserving functions (e.g `zip`s).
+
+The problem here is that the type alias is only really syntactic sugar around a `number[]` type; the type signature of `map` is still `(number[], (number -> number)) -> number[]`, and `number[]` makes no guarantee of the _length_ of the array. But what if we could include this information in the type definition?
+
+# Dependent Types
+
+We are all familiar with the idea of generics; a type with a 'parameter'. An obvious example would be a `List` type. A `List` on its own makes little sense, a list is a box containing another type (a list of `number`s, or of `string`s, etc). Most modern strongly typed languages allow you to specify this 'parameter' when creating your own generic type. For example
+
+```typescript
+type NewGeneric<T> = { val: T }
+```
+defines a new generic type called `NewGeneric` with a type parameter `T`. I can declare
+
+```typescript
+let a: NewGeneric<number> = {
+    val : 2
+}
+```
+as a `NewGeneric` with `T` of `number`, meaning `val` has type `number`. Similarly, I could define a `NewGeneric<string>`, or any type really. But I _can't_ define something that is just `NewGeneric`. It's nonsensical; what type should `val` be?
+
+In a way, we can think of `NewGeneric` as some kind of 'function' from types to types. It takes in a type parameter (e.g `number`) and return a new type (`NewGeneric<number>`). But this parameter must be a type. I can't declare a `NewGeneric<4>`, or `NewGeneric<"hello world">`, because `4` and `"hello world"` are not types, they are concrete values. 
+
+Dependent types take this a step further, and allow you to define types that can take _values_ as parameters. Remember my issue before above? The typescript type system gave no assurances about the length of the list. But say I could define a list as (in pseudo typescript)
+
+```typescript
+type List<T, n: number> = ...
+```
+
+where `T` is the type of the elements in the list and `n` is the number of elements in the list. So I could define
+
+```typescript
+let a: List<string, 3> = ["Hello", "world", "!"]
+```
+
+This makes the length of the list an intrinsic part of the type of the list, so a list with 4 elements in is a different type to one with 3 elements in. Dependent types allow you to define types that are generic over type parameters _and_ value parameters. 
+
+I can then rewrite the map function to have a type signature of `(List<A, n>, (A->B)) -> List<B,n>`. Similarly, I could rewrite the `concat` signature to `(List<A,n>, List<A,m>) -> List<A, n+m>` and so on and so forth, and gain another level of type security.
+
+Note that this is not the same as fixed length arrays, which have existed for years across languages. The key difference here is that this is this is checked at compile time and is an intrinsic part of the type; I can define `var x = new int[3] {1,2,3}` in `c#` for example, but `x` still has type `int[]`, and theres nothing stopping me doing something like 
+
+```c#
+var x = new int[3] {1,2,3};
+var y = new int[2] {1,2};
+
+x=y; // x now an array of length 2
+```
+
+The length parameter is really just a constructor argument; theres nothing stopping you changing the array to a different sized one later. With the dependently typed `List` above, this would fail at compile time.
+
+This may seem like a bit of a needless restriction to impose, but sometimes this level of security can be really useful. Consider, for example, the `head` function that takes the first item from a list unless the list is empty. in which case it throws an exception/ returns `null`/ other annoying behavior that importantly _can't be statically decided_. Our dependent types allow us to do better than this. Consider (again, pseudo ts)
+
+```typescript
+type LowerBoundedNumber<bound: int> = {x: int if x > bound}
+type NonEmptyList<T, n: LowerBoundedNumber<1>>
+```
+as a dependent type representing the set of integers greater than some lower bound, and a subsequent dependent type (as seen before) for a list, except the length must be of type `LowerBoundedNumber<1>` (i.e the `n` must be greater than 1). Then, we define our head function on this stronger, non empty list
+
+```typescript
+function head<T, n>(list: NonEmptyList<T, n>): T {
+    return list[0]
+}
+```
+and be confident we aren't returning anything unexpected, rather than wrapping the function in a `try`-`catch` block/ returning a `Result` type etc.
+
+# Agda 
+
+It was at this point I came across the Agda language. Agda is a fascinating language, built on top of the Haskell toolchain (it compiles to some sort of GHC IR, dependency management is with stack/ cabal, etc) with support for dependent typing. Our `List` example above is the `Vec` object in Agda, which has a type signature of
+
+```agda
+data Vec (A : Set) : ℕ → Set
+```
+Agda separates type parameters into **parameters** (type parameters) and **indices** (value parameters). The data type `Vec` has 1 parameter of type `A` (which must itself be in `Set`: a `sort` (a 'type of types') of primitives) and 1 index parameter, which must be in `ℕ`, the set of natural numbers. The return type also belongs to `Set`. 
+
+Agda's type system is unbelievably rich. Just in that brief line we have touched on dependent types (obviously) and the idea of a `sort`. It is this system that allows Agda's real purpose to shine, as a proof assistant. Loosely, by using these complex types, you can define a theorem in terms of types. If Agda is able to compile the program, the theorem can be considered proved. 
+
+This was the briefest overview, and likely won't be the last time I find myself touching on Agda. I plan to revisit some of my old Algebra II content with the aim to prove some of the theorems in Agda.
+
+# Conclusions
+
+Type systems are so varied and it's always so fascinating the ways different languages implement them. Whilst I'm not expecting Agda to go mainstream anytime soon, it'd be interesting to see how a more pragmatic language might implement dependent types. Rust seems to be the closest to some level of dependent typing with proposed const generics; allowing a type to be generic over a compile time constant, which would fill many of the same holes dependent types would (see this [RFC](https://github.com/rust-lang/rfcs/blob/master/text/2000-const-generics.md)). A similar idea also exists in `c++` through the use of templates.
