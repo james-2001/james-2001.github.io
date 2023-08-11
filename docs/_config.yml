@@ -28,6 +28,11 @@ url: "" # the base hostname & protocol for your site, e.g. http://example.com
 github_username:  james-2001
 
 # Build settings
+# markdown: pandoc
+# pandoc:
+#   extensions: 
+#     - smart
+#     - mathjax
 theme: minima
 plugins:
   - jekyll-feed

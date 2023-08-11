@@ -1,0 +1,177 @@
+---
+layout: post
+title:  "Bayesian Portfolio Optimization"
+date:   2023-07-14 00:00:00 +0100
+categories: blog
+---
+
+
+$$ \begin{equation} \end{equation} $$
+
+{% include tex.html %}
+
+The premise of portfolio optimization is simple. Given a vector of $$ n $$ assets we define a portfolio by the set of asset weights $$ \pmb{w} $$, where the element $$ w_i $$ corresponds the the proportion of the portfolio that should be held in asset $$ i $$. We have the obvious constraint that $$ \sum^n_{i=1}w_i=1 $$, and we can impose additional weights, for example we might only allow long trades ($$ w_i >=0 $$) or limit how much of a portfolio can be held in a single asset ($$ w_i < a $$ for some upper bound $$ a $$). The question is how to we select the 'optimal' vector $$ \pmb{w} $$?
+
+There are many different ways to evaluate the performance of a portfolio. The usual trade-off we are trying to balance is maximising expected returns whilst minimising the variance of these returns. One commonly used formula to express this balance is the Sharpe Ratio, defined as 
+
+$$ \begin{equation} S_t = \frac{\mathbb{E}(R_{p,t} - R_{f,t})}{\sigma_{p,t}} \end{equation} $$
+
+where
+- $$ R_{p,t} $$ is the rate of return for your portfolio at time $$ t $$
+- $$ R_{f,t} $$ is the risk free rate of return at time $$ t $$
+- $$ \sigma_{p,t} $$ is the standard deviation of the return of your portfolio at time $$ t $$
+
+If we let 
+
+$$ \begin{equation} r_{t,i} = log(\frac{S_t}{S_{t-1}}) \end{equation} $$
+
+be our log returns for asset $$ i $$  with price $$ S_t $$ at time $$ t $$, then we can make the assumption that
+
+$$ \begin{equation} \textbf{r}_t \sim N_n(\pmb{\mu}, \pmb{\Sigma})\end{equation} $$
+
+Where $$ \pmb{r}_t = (r_{1,t}...r_{n,t})  $$. We also have that our hyperparameters $$ \pmb{\mu} $$ and $$ \pmb{\Sigma} $$ are independent of $$ t $$ (from here on in we will consider $$ t $$ constant, and omit it from notation for the sake of brevity). We observe $$ R_{p} = \textbf{w} . \textbf{r} $$, and rewrite the Sharpe ratio as
+
+$$ \begin{equation} S = \frac{\textbf{w}.\pmb{\mu} - R_f}{\sqrt{\pmb{w}^T\pmb{\Sigma}\pmb{w}}} \end{equation} $$
+
+and thus our optimal weights are the given by
+
+$$ \begin{equation} \hat{\pmb{w}} = argmax_w \left[\frac{\textbf{w}.\pmb{\mu} - R_f}{\sqrt{\pmb{w}^T\pmb{\Sigma}\pmb{w}}}\right] \end{equation} $$
+
+The next puzzle becomes how best to estimate $$ \pmb{\mu} $$ and $$ \pmb{\Sigma} $$. The frequentist framework will somehow estimate these from sample statistics in the data. We will consider the problem in a Bayesian Framework, where we treat $$ \pmb{\mu} $$ and $$ \pmb{\Sigma} $$ as random quantities, and derive posterior distributions over them.
+
+# The Data
+
+We will consider 3 assets, namely AAPL, AMZN and MSFT shares. The data was sourced from [Yahoo Finance](https://finance.yahoo.com/quote/). 
+
+![Share prices over time](/assets/stocks.png)
+
+We can calculate the log returns over time
+
+![Log returns over time](/assets/logreturns.png)
+
+with means $$ \hat{\pmb{\mu}} $$
+
+```
+AMZN    0.000782
+AAPL    0.001365
+MSFT    0.001123
+```
+
+We consider conjugate priors for $$ \pmb{\mu} $$ and $$ \pmb{\Sigma} $$. [Avramov and Zhou](http://apps.olin.wustl.edu/faculty/zhou/AZ.pdf) recommend a Normal prior for $$ \pmb{\mu} \vert \pmb{\Sigma} $$, and an Inverse Wishart prior on $$ \pmb{\Sigma} $$, however there is evidence an IW prior can be unstable, especially when used in MCMC sampling (see [here](https://dahtah.wordpress.com/2012/03/07/why-an-inverse-wishart-prior-may-not-be-such-a-good-idea/) and [here](https://github.com/pymc-devs/pymc/issues/538#issuecomment-94153586) for two examples), and PyMC specifically recommends against it, instead recommending a LKJ prior on the covariance matrix. We combine this with a prior on the standard deviations of each component, which we select as standard Log Normal, as suggested by [Barnard, McCulloch, and Meng](https://www3.stat.sinica.edu.tw/statistica/oldpdf/A10n416.pdf). So our model is 
+
+$$
+\begin{align*}
+    s_i &\sim LN(0,1) \\
+    \pmb{L}\vert\pmb{s} &\sim LKJ(\eta = 1, \pmb{s}) \\
+    \pmb{\Sigma} &= \pmb{L}\pmb{L}^T \\
+    \pmb{\mu}\vert\pmb{\Sigma} &\sim N(\hat{\pmb{\mu}}, \Sigma) \\
+    \pmb{R}\vert\pmb{\mu},\pmb{\Sigma} &\sim N(\pmb{\mu}, \pmb{\Sigma})
+\end{align*}
+
+$$
+
+We choose the shape parameter $$ \eta $$ of the LKJ distribution to be 1 as this leads to a uniform distribution for the correlations between different elements (as stated in this [PyMC example](https://www.pymc.io/projects/docs/en/v3/pymc-examples/examples/case_studies/LKJ.html)). We code this using PyMC as
+
+```python
+model = pm.Model()
+
+with model:
+    s = pm.LKJCholeskyCov("s", eta= 1.0,  n=3, sd_dist=pm.Lognormal.dist(np.zeros(3), np.ones(3), shape=3), compute_corr=False)
+    L = pm.expand_packed_triangular(3, s)
+    cov = pm.Deterministic("cov", L @ (L.T))
+
+    mu = pm.MvNormal("mu", mu=mu_hat.to_numpy(), cov = cov)
+
+    R = pm.MvNormal("R", mu = mu, cov = cov, observed=log_returns)
+```
+and then take MCMC samples from the posterior with
+
+```python
+with model:
+    p_data = pm.sample()
+```
+A quick check of the trace plots as
+
+![Mu trace](/assets/mutrace.png)
+![Cov trace](/assets/covtrace.png)
+
+and nothing stands out. We can use `arviz` to generate a summary of the posterior
+
+```
+              mean       sd   hdi_3%  hdi_97%
+mu[0]      0.00084  0.00177 -0.00233  0.00417
+mu[1]      0.00141  0.00117 -0.00068  0.00366
+mu[2]      0.00117  0.00126 -0.00108  0.00363
+cov[0, 0]  0.00078  0.00007  0.00065  0.00091
+cov[0, 1]  0.00035  0.00004  0.00028  0.00042
+cov[0, 2]  0.00038  0.00004  0.00030  0.00046
+cov[1, 0]  0.00035  0.00004  0.00028  0.00042
+cov[1, 1]  0.00034  0.00003  0.00028  0.00040
+cov[1, 2]  0.00026  0.00003  0.00021  0.00032
+cov[2, 0]  0.00038  0.00004  0.00030  0.00046
+cov[2, 1]  0.00026  0.00003  0.00021  0.00032
+cov[2, 2]  0.00040  0.00004  0.00033  0.00047
+```
+
+and also to check the $$ \hat{r} $$ (a test for lack of convergence in the sampling chains; [`rstan` recommends](https://mc-stan.org/rstan/reference/Rhat.html) ensuring all values are below 1.05) values for `cov`
+
+```
+array([[1.00026299, 1.00082826, 1.00169249],
+       [1.00082826, 0.99970231, 1.0001616 ],
+       [1.00169249, 1.0001616 , 1.00175634]])
+```
+
+and `mu`
+
+```
+array([1.00175952, 1.00230537, 1.00121178])
+```
+
+All looking good so far. Now we have a batch of samples from our posterior distribution, we can work on finding our optimal portfolio weights
+
+# Optimising the sharpe ratio
+The basic idea is that for each pair of samples from $$ \pmb{\mu} $$ and $$ \pmb{\Sigma} $$, we use these as estimates in the above equation and find the optimal weights. This collection of weights then forms a distribution for the optimal weights, from which we can extract information. 
+
+In practical terms, we start by defining the Sharpe ratio and our constraint
+
+```python
+def sharpe_ratio(x, s: np.ndarray, mu: np.ndarray, R: float)-> float:
+    return (x.T @ mu - R)/(np.sqrt(x.T @ s @ x))
+
+def constraint(x):
+    return sum(x) - 1
+```
+We then use `scipy.optimize.minimize` to minimise the negative of the Sharpe ratio, thus maximising the ratio.
+
+```python
+def optimise(s: np.ndarray, mu: np.ndarray, R: float):
+    size = mu.shape[0]
+    init = 1/size * np.ones(size)
+    bounds = tuple([(0,1) for _ in range(size)])
+
+    return optimize.minimize(
+        lambda x: -sharpe_ratio(x,s,mu,R),
+        bounds=bounds,
+        x0=init,
+        constraints=({'type': 'eq', 'fun':constraint}),
+    )
+```
+
+By assuming a risk free return of 0.02, and finding the optimal weights for all pairs of samples from the posterior, we can calculate the mean for our optimal weights of
+
+```
+[1.67527418e-04 6.29956078e-01 3.69876395e-01]
+```
+
+i.e we should have almost 0% in AMZN, around 63% in AAPL and 37% in MSFT.
+
+# Conclusions
+
+It can sometimes be difficult to see the point of Bayesian inference; even the simplest model is considerably more computationally expensive than many frequentist techniques, and at first the concept and models can be difficult to understand. I will avoid the philosophical arguments in favour of a Bayesian treatment here, and instead talk about the biggest practical advantages.
+
+The most important advantage here is we infer a _distribution_ over $$ \pmb{\mu} $$ and $$ \pmb{\Sigma} $$ and thus over $$ \pmb{w} $$ that is evidenced by the data. This allows us to easily calculate further statistics from the data (confidence intervals, etc).
+
+It is quite obvious where to start improving our model. For example, we could
+- Consider the choice of distributions of our priors
+- Consider the choice of hyperparameters for our prior distributions
+- Consider the assumptions made (for example, we have assumed the returns $$ R_i $$ to be independent. A cursory glance at the plots of asset price over time suggests this is probably not a safe assumption to make. This is not a surprise, given how these 3 shares operate in the same sector)
