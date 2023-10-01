@@ -21,8 +21,7 @@
 title: James May
 email: james.a.may.2001@gmail.com
 description: >- # this means to ignore newlines until "baseurl:"
-  Welcome to my site! Feel free to get in touch/ raise a pr if I've written anything incorrect
-  (which I almost certainly have).
+  Welcome to my site! Feel free to get in touch/ raise a pr if I've written anything incorrect.
 baseurl: "" # the subpath of your site, e.g. /blog
 url: "" # the base hostname & protocol for your site, e.g. http://example.com
 github_username:  james-2001

@@ -1,0 +1,18 @@
+---
+layout: post
+title:  "Football Stocks"
+date:   2023-09-30 20:18:00 +0100
+categories: blog
+---
+
+Last season was not a bad year for Manchester United. They finished 3rd overall in the English Premier League, qualifying for the Champions League and winning the EFL Cup under the new managerial direction of Erik Ten Hag. United are a unique club for many reasons in the English game, but not least because they are the only publicly traded English club: a portion of the clubs shares trade on the NYSE as $MANU. Last year, the stock began the season at 11.61 USD, and ended at a 19.11 USD, a modest 65% increase (for context, the S&P 500 grew by a measly 13% in that period). But how much of this success can be attributed to the on field performance, as opposed to of the field activity?
+
+One way to consider this is to track the correlation between the stock's performance and the number of league points accrued. After sourcing the data (stock price data from Yahoo finance, fixture data from [fixturedownload.com](fixturedownload.com)), some minor preprocessing (mostly mapping each result to the number of points for United), we can plot the two against each other ![plot](/assets/manu.png).
+
+No obvious pattern here. We will consider the correlation between the number of points won in a game, and log returns of a stock before and after the game. Full code can be found in the [content/manu](https://github.com/james-2001/james-2001.github.io/tree/main/docs/content/manu) folder in this repository, but once the relevant data is collected we can find the correlation as `-0.210511`.
+
+This is not a fantastic result- a small negative correlation implies the opposite of what we would expect, that good results on the pitch often result in poor returns on the stock. 
+
+This result is a testament of the complexity of modern day sports businesses. The performance of the stock is a long way removed from the week on week performance of the team, and closer to the long term goals and profitability of the club. For example, much of the recent seasons have been clouded by uncertainty over the position of United's owners, the Glazer family. This uncertainty of the long term future of the club has had disastrous effects on the stock price, far more than on pitch performance has (for example, in September this year the Glazers announced they would no longer be considering offers on the club, leading to an 18% plunge over the weekend ([bloomberg](https://www.bloomberg.com/news/articles/2023-09-05/manchester-united-shares-plunge-as-uncertainty-over-sale-grows))). 
+
+In summary, if you are looking to make money based on performance of a sports team, traditional sports betting seems the more predictable avenue.
